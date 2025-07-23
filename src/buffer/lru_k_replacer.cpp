@@ -39,7 +39,58 @@ LRUKReplacer::LRUKReplacer(size_t num_frames, size_t k) : replacer_size_(num_fra
  *
  * @return the frame ID if a frame is successfully evicted, or `std::nullopt` if no frames can be evicted.
  */
-auto LRUKReplacer::Evict() -> std::optional<frame_id_t> { return std::nullopt; }
+auto LRUKReplacer::Evict() -> std::optional<frame_id_t>
+{
+
+	std::lock_guard<std::mutex> lock(latch_);
+	LRUKNode *node_to_delete = nullptr;
+	LRUKNode *non_trusted_node = nullptr;
+
+	int largest_k_distance = INT_MIN;
+	size_t oldest_time_stamp = std::numeric_limits<size_t>::max();
+	for(auto &entry : node_store_)
+	{
+		auto &node = entry.second;
+		if(!node.get_is_evictable())continue;
+		if(node.get_history().size() >= k)
+		{
+			size_t kth_time_stamp = node.get_kth_timestamp(k_);
+			int k_distance = current_timestamp_ - kth_time_stamp;
+			if(k_distance > largest_k_distance)
+			{
+				largest_k_distance = k_distance;
+				node_to_delete = &node;
+			}
+		}
+		else
+		{
+
+			size_t oldest = node.get_oldest_timestamp();
+			if(oldest < oldest_time_stamp)
+			{
+				oldest_time_stamp = oldest;
+				non_trusted_node = &node;
+			}
+
+		}
+
+	}
+	if (non_trusted_node != nullptr) {
+		frame_id_t fid = non_trusted_node->get_frame_id();
+		node_store_.erase(fid);
+		curr_size_--;
+		return fid;
+	}
+
+	if (node_to_delete != nullptr) {
+		frame_id_t fid = node_to_delete->get_frame_id();
+		node_store_.erase(fid);
+		curr_size_--;
+		return fid;
+	}
+
+	return std::nullopt;
+}
 
 /**
  * TODO(P1): Add implementation
