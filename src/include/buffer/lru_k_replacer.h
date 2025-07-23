@@ -18,7 +18,7 @@
 #include <optional>
 #include <unordered_map>
 #include <vector>
-
+#include <climits>
 #include "common/config.h"
 #include "common/macros.h"
 
@@ -35,6 +35,23 @@ class LRUKNode {
   [[maybe_unused]] size_t k_;
   [[maybe_unused]] frame_id_t fid_;
   [[maybe_unused]] bool is_evictable_{false};
+ public:
+	bool get_is_evictable(){return is_evictable_}
+	std::list<size_t> get_history(){return history_}
+	size_t get_kth_timestamp(size_t k)
+	{
+		if(history_.size() < k)
+			return std::numeric_limits<size_t>::max();
+		auto it = history_.begin();
+		std::advance(it, history_.size() - k);
+		return *it;
+	}
+	size_t get_oldest_timestamp()
+	{
+		if(history_.empty()) return std::numeric_limits<size_t>::max();
+		return history_.front();
+	}
+	frame_id_t get_frame_id(){return fid_;}
 };
 
 /**
@@ -83,3 +100,4 @@ class LRUKReplacer {
 };
 
 }  // namespace bustub
+
