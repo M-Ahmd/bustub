@@ -121,6 +121,10 @@ void ArcReplacer::Remove(frame_id_t frame_id) {}
  *
  * @return size_t
  */
-auto ArcReplacer::Size() -> size_t { return 0; }
+auto ArcReplacer::Size() -> size_t
+{
+	std::scoped_lock lock(latch_);
+	return curr_size_;
+}
 
 }  // namespace bustub
