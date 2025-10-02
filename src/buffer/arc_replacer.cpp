@@ -120,7 +120,42 @@ void ArcReplacer::SetEvictable(frame_id_t frame_id, bool set_evictable) {
  *
  * @param frame_id id of frame to be removed
  */
-void ArcReplacer::Remove(frame_id_t frame_id) {}
+void ArcReplacer::Remove(frame_id_t frame_id){
+	std::scoped_lock lock(latch_);
+
+	auto info = alive_map_.find(frame_id);
+	if(info == alive_map.end()) return;
+
+	std::shared_ptr<FrameStatus> frame = info->second;
+	if(!frame->evictable_)return;
+
+	page_id_t id = frame->page_id_;
+
+	for(auto it = mru_.begin(); it != mru_.end();)
+	{
+		if(*it == frame_id) it = mru_.erase(it);
+		else it++;
+	}
+
+	for(auto it = mfu_.begin(); it != mfu_.end();)
+        {
+                if(*it == frame_id) it = mfu_.erase(it);
+                else it++;
+        }
+
+	for(auto it = mru_ghost_.begin(); it != mru_ghost_.end();)
+        {
+                if(*it == id) it = mru_ghost_.erase(it);
+                else it++;
+        }
+	for(auto it = mfu_ghost_.begin(); it != mfu_ghost_.end();)
+        {
+                if(*it == id) it = mfu_ghost_.erase(it);
+                else it++;
+        }
+
+	curr_size_--;
+}
 
 /**
  * TODO(P1): Add implementation
