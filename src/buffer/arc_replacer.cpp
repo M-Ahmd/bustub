@@ -154,6 +154,7 @@ void ArcReplacer::Remove(frame_id_t frame_id){
                 else it++;
         }
 
+	alive_map_.erase(frame_id);
 	curr_size_--;
 }
 
