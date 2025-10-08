@@ -75,7 +75,10 @@ auto ArcReplacer::Evict() -> std::optional<frame_id_t> { return std::nullopt; }
  * @param access_type type of access that was received. This parameter is only needed for
  * leaderboard tests.
  */
-void ArcReplacer::RecordAccess(frame_id_t frame_id, page_id_t page_id, [[maybe_unused]] AccessType access_type) {}
+void ArcReplacer::RecordAccess(frame_id_t frame_id, page_id_t page_id, [[maybe_unused]] AccessType access_type)
+{
+
+}
 
 /**
  * TODO(P1): Add implementation
@@ -95,13 +98,23 @@ void ArcReplacer::RecordAccess(frame_id_t frame_id, page_id_t page_id, [[maybe_u
  * @param set_evictable whether the given frame is evictable or not
  */
 void ArcReplacer::SetEvictable(frame_id_t frame_id, bool set_evictable) {
-	std::scoped_lock lock(latch_);
-	auto it = alive_map_.find(frame_id);
-	if(it == alive_map_.end())return ;
-	std::shared_ptr<FrameStatus> frame = it->second;
-	if(frame == nullptr || frame->evictable_ == set_evictable)return ;
-	frame->evictable_ = set_evictable;
-	curr_size_ += set_evictable ? 1 : -1;
+    std::scoped_lock lock(latch_);
+
+    auto it = alive_map_.find(frame_id);
+    BUSTUB_ASSERT(it != alive_map_.end(), "Invalid frame id in SetEvictable()");
+
+    auto frame = it->second;
+    BUSTUB_ASSERT(frame != nullptr, "Frame pointer is null in SetEvictable()");
+
+    // this is no logical error (MASR is great place)
+    if (frame->evictable_ == set_evictable) {
+        return;
+    }
+
+    frame->evictable_ = set_evictable;
+    curr_size_ += set_evictable ? 1 : -1;
+
+    BUSTUB_ASSERT(curr_size_ >= 0, "Replacer size underflow in SetEvictable()");
 }
 
 /**
@@ -120,42 +133,46 @@ void ArcReplacer::SetEvictable(frame_id_t frame_id, bool set_evictable) {
  *
  * @param frame_id id of frame to be removed
  */
-void ArcReplacer::Remove(frame_id_t frame_id){
-	std::scoped_lock lock(latch_);
+void ArcReplacer::Remove(frame_id_t frame_id) {
+    std::scoped_lock lock(latch_);
 
-	auto info = alive_map_.find(frame_id);
-	if(info == alive_map.end()) return;
+    auto info = alive_map_.find(frame_id);
+    if (info == alive_map_.end()) {
+        //not error
+        return;
+    }
 
-	std::shared_ptr<FrameStatus> frame = info->second;
-	if(!frame->evictable_)return;
+    auto frame = info->second;
+    BUSTUB_ASSERT(frame != nullptr, "Null frame in Remove()");
 
-	page_id_t id = frame->page_id_;
 
-	for(auto it = mru_.begin(); it != mru_.end();)
-	{
-		if(*it == frame_id) it = mru_.erase(it);
-		else it++;
-	}
+    BUSTUB_ASSERT(frame->evictable_, "Attempted to remove a non-evictable frame");
 
-	for(auto it = mfu_.begin(); it != mfu_.end();)
-        {
-                if(*it == frame_id) it = mfu_.erase(it);
-                else it++;
-        }
+    page_id_t id = frame->page_id_;
 
-	for(auto it = mru_ghost_.begin(); it != mru_ghost_.end();)
-        {
-                if(*it == id) it = mru_ghost_.erase(it);
-                else it++;
-        }
-	for(auto it = mfu_ghost_.begin(); it != mfu_ghost_.end();)
-        {
-                if(*it == id) it = mfu_ghost_.erase(it);
-                else it++;
-        }
 
-	alive_map_.erase(frame_id);
-	curr_size_--;
+    switch (frame->ArcStatus) {
+        case MRU:
+            mru_.remove(frame_id);
+            break;
+        case MFU:
+            mfu_.remove(frame_id);
+            break;
+        case MRU_GHOST:
+            mru_ghost_.remove(id);
+            break;
+        case MFU_GHOST:
+            mfu_ghost_.remove(id);
+            break;
+        default:
+            break;
+    }
+
+    alive_map_.erase(frame_id);
+    ghost_map_.erase(id);
+
+    BUSTUB_ASSERT(curr_size_ > 0, "curr_size_ underflow in Remove()");
+    curr_size_--;
 }
 
 /**
