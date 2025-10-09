@@ -75,10 +75,160 @@ auto ArcReplacer::Evict() -> std::optional<frame_id_t> { return std::nullopt; }
  * @param access_type type of access that was received. This parameter is only needed for
  * leaderboard tests.
  */
-void ArcReplacer::RecordAccess(frame_id_t frame_id, page_id_t page_id, [[maybe_unused]] AccessType access_type)
-{
+//void ArcReplacer::RecordAccess(frame_id_t frame_id, page_id_t page_id, [[maybe_unused]] AccessType access_type)
+//{
 
+	/*std::scoped_lock lock(latch_);
+	std::shared_ptr<FrameStatus> live = alive_map_[frame_id];
+	std::shared_ptr<FrameStatus> ghost = ghost_map_[page_id_t];
+	//if the page in the mru or mfu move it to the front of mfu
+	if(live)
+	{
+		ArcStatus &status = live->arc_status_;
+		if(status == MRU)
+		{
+			auto it;
+			for(it = mru_.begin(); it != mru_.end(); it++)
+				if(*it == frame_id)
+					break;
+			mru_.erase(it);
+		}
+		else
+		{
+			auto it;
+                        for(it = mfu_.begin(); it != mfu_.end(); it++)
+                                if(*it == frame_id)
+                                        break;
+                        mfu_.erase(it);
+		}
+		mfu_.push_front(frame_id);
+		status = MFU;
+	}
+	//if the page in the mru ghost we see {if {size of mru ghost >= size of mfu ghost ==> mru_target++}} else
+	//mru_target += mfu ghost size / mru ghost size and move it to the front of the mfu list
+	//make sure the mru_target not greater than replacer_size
+
+	//if the page in the mfu ghost we see {if {size of mfu ghost >= size of mru ghost ==> mru_target--}} else
+	//mru_target -= mru ghost size / mfu ghost size, make sure the mru_target not negative
+	else if(ghost)
+	{
+		ArcStatus &status = ghost->arc_status_;
+
+		if(status == MRU_GHOST)
+		{
+
+			if(mru_ghost_.size() >= mfu_ghost_.size())
+				mru_target_size_++;
+			else
+				mru_target_size_ += mfu_ghost_.size() / mru_ghost_.size();
+			BUSTUB_ASSERT(mru_target_size_ > replacer_size, "MRU target size cannot be greater than total size");
+			auto it;
+			for(it = mru_ghost_.begin(); it != mru_ghost_.end(); it++)
+				if(*it == page_id)
+					break;
+
+			mru_ghost_.erase(it);
+			mfu_.push_front(ghost->frame_id_);
+			status = MFU;
+		}
+		else
+		{
+			if(mfu_ghost_.size() >= mru_ghost_.size())
+                                mru_target_size_--;
+                        else
+                                mru_target_size_ -= mru_ghost_.size() / mfu_ghost_.size();
+                        BUSTUB_ASSERT(mru_target_size_ < 0, "MRU target size cannot be less than 0");
+                        auto it;
+                        for(it = mfu_ghost_.begin(); it != mfu_ghost_.end(); it++)
+                                if(*it == page_id)
+                                        break;
+
+                        mfu_ghost_.erase(it);
+                        mfu_.push_front(ghost->frame_id_);
+                        status = MFU;
+		}
+	}
+	//if the page is not in all of the four lists if the mru list + his ghost list = replacer size evict the
+	//last element in the ghost list
+	//else we check mru + his ghost + mfu + his ghost = 2 * capacity evict last one in the mfu ghost
+	//else add and dont remove
+	else
+	{
+		if(mru_.size() + mru_ghost_.size() == replacer_size_)
+			mru_ghost_.pop_back();
+		//ينحم هفك لازغ يدنع ناك : راسج لئاو
+		else
+		{
+			if(mru_.size() + mfu_.size() + mru_ghost_.size() + mfu_ghost_.size() == 2 * replacer_size_)
+				mfu_ghost_.pop_back();
+			else
+				//do no thing
+		}
+}*/
+void ArcReplacer::RecordAccess(frame_id_t frame_id, page_id_t page_id, [[maybe_unused]] AccessType access_type) {
+    std::scoped_lock lock(latch_);
+
+    auto live_it = alive_map_.find(frame_id);
+    auto ghost_it = ghost_map_.find(page_id);
+
+
+    if (live_it != alive_map_.end()) {
+        auto status = live_it->second->arc_status_;
+        if (status == MRU) {
+            mru_.remove(frame_id);
+        } else {
+            mfu_.remove(frame_id);
+        }
+        mfu_.push_front(frame_id);
+        live_it->second->arc_status_ = MFU;
+        return;
+    }
+
+
+    if (ghost_it != ghost_map_.end()) {
+        auto status = ghost_it->second->arc_status_;
+        if (status == MRU_GHOST) {
+            if (mru_ghost_.size() >= mfu_ghost_.size())
+                mru_target_size_++;
+            else
+                mru_target_size_ += mfu_ghost_.size() / std::max<size_t>(1, mru_ghost_.size());
+            mru_target_size_ = std::min(mru_target_size_, replacer_size_);
+
+            mru_ghost_.remove(page_id);
+        } else { // MFU_GHOST
+            if (mfu_ghost_.size() >= mru_ghost_.size())
+                mru_target_size_--;
+            else
+                mru_target_size_ -= mru_ghost_.size() / std::max<size_t>(1, mfu_ghost_.size());
+            mru_target_size_ = std::max<int>(mru_target_size_, 0);
+
+            mfu_ghost_.remove(page_id);
+        }
+
+        ghost_map_.erase(page_id);
+        alive_map_[frame_id] = std::make_shared<FrameStatus>(frame_id, page_id, MFU);
+        mfu_.push_front(frame_id);
+        return;
+    }
+
+
+    if (mru_.size() + mru_ghost_.size() == replacer_size_) {
+        page_id_t victim = mru_ghost_.back();
+        mru_ghost_.pop_back();
+        ghost_map_.erase(victim);
+    } else if (mru_.size() + mru_ghost_.size() + mfu_.size() + mfu_ghost_.size() == 2 * replacer_size_) {
+        page_id_t victim = mfu_ghost_.back();
+        mfu_ghost_.pop_back();
+        ghost_map_.erase(victim);
+    }
+
+
+    alive_map_[frame_id] = std::make_shared<FrameStatus>(frame_id, page_id, MRU);
+    mru_.push_front(frame_id);
 }
+
+
+
 
 /**
  * TODO(P1): Add implementation
