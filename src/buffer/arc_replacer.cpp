@@ -174,24 +174,24 @@ void ArcReplacer::RecordAccess(frame_id_t frame_id, page_id_t page_id, [[maybe_u
 
     if (live_it != alive_map_.end()) {
         auto status = live_it->second->arc_status_;
-        if (status == MRU) {
+        if (status == ArcStatus::MRU) {
             mru_.remove(frame_id);
         } else {
             mfu_.remove(frame_id);
         }
         mfu_.push_front(frame_id);
-        live_it->second->arc_status_ = MFU;
+        live_it->second->arc_status_ = ArcStatus::MFU;
         return;
     }
 
 
     if (ghost_it != ghost_map_.end()) {
         auto status = ghost_it->second->arc_status_;
-        if (status == MRU_GHOST) {
+        if (status == ArcStatus::MRU_GHOST) {
             if (mru_ghost_.size() >= mfu_ghost_.size())
                 mru_target_size_++;
             else
-                mru_target_size_ += mfu_ghost_.size() / std::max<size_t>(1, mru_ghost_.size());
+                mru_target_size_ += mfu_ghost_.size() / /*std::max<size_t>(1,*/ mru_ghost_.size()/*)*/;
             mru_target_size_ = std::min(mru_target_size_, replacer_size_);
 
             mru_ghost_.remove(page_id);
@@ -199,14 +199,14 @@ void ArcReplacer::RecordAccess(frame_id_t frame_id, page_id_t page_id, [[maybe_u
             if (mfu_ghost_.size() >= mru_ghost_.size())
                 mru_target_size_--;
             else
-                mru_target_size_ -= mru_ghost_.size() / std::max<size_t>(1, mfu_ghost_.size());
-            mru_target_size_ = std::max<int>(mru_target_size_, 0);
+                mru_target_size_ -= mru_ghost_.size() / /*std::max<size_t>(1, */mfu_ghost_.size()/*)*/;
+            mru_target_size_ = std::max(mru_target_size_, 0);
 
             mfu_ghost_.remove(page_id);
         }
 
         ghost_map_.erase(page_id);
-        alive_map_[frame_id] = std::make_shared<FrameStatus>(frame_id, page_id, MFU);
+        alive_map_[frame_id] = std::make_shared<FrameStatus>(frame_id, page_id, false, ArcStatus::MFU);
         mfu_.push_front(frame_id);
         return;
     }
@@ -223,7 +223,7 @@ void ArcReplacer::RecordAccess(frame_id_t frame_id, page_id_t page_id, [[maybe_u
     }
 
 
-    alive_map_[frame_id] = std::make_shared<FrameStatus>(frame_id, page_id, MRU);
+    alive_map_[frame_id] = std::make_shared<FrameStatus>(frame_id, page_id, false, ArcStatus::MRU);
     mru_.push_front(frame_id);
 }
 
