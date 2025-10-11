@@ -14,7 +14,7 @@
 #include "buffer/arc_replacer.h"
 #include <optional>
 #include "common/config.h"
-using namespace std;
+
 namespace bustub {
 
 /**
@@ -45,167 +45,17 @@ ArcReplacer::ArcReplacer(size_t num_frames) : replacer_size_(num_frames) {}
  * @return frame id of the evicted frame, or std::nullopt if cannot evict
  */
 auto ArcReplacer::Evict() -> std::optional<frame_id_t> {
-  std::scoped_lock lock(latch_);
-
-  if (curr_size_ == 0) {
-    return std::nullopt;
-  }
-
-  auto try_evict_from = [&](std::list<frame_id_t> &list,
-                            std::list<page_id_t> &ghost_list,
-                            ArcStatus ghost_status) -> std::optional<frame_id_t> {
-    for (auto rit = list.rbegin(); rit != list.rend(); ++rit) {
-      frame_id_t fid = *rit;
-      auto live_it = alive_map_.find(fid);
-      if (live_it == alive_map_.end()) {
-        continue;
-      }
-      auto frame = live_it->second;
-      if (!frame->evictable_) {
-        continue;
-      }
-
-      auto normal_it = std::prev(rit.base());
-
-      
-      ghost_list.push_front(frame->page_id_);
-      ghost_map_[frame->page_id_] = frame;
-      frame->arc_status_ = ghost_status;
-
-      
-      list.erase(normal_it);
-      alive_map_.erase(live_it);
-
-
-      BUSTUB_ASSERT(curr_size_ > 0, "Replacer size underflow in Evict()");
-      curr_size_--;
-
-      return fid;
-    }
-    return std::nullopt;
-  };
-
-  std::optional<frame_id_t> result;
-
-  if (mru_.size() >= mru_target_size_) {
-    result = try_evict_from(mru_, mru_ghost_, ArcStatus::MRU_GHOST);
-    if (!result) {
-      result = try_evict_from(mfu_, mfu_ghost_, ArcStatus::MFU_GHOST);
-    }
-  } else {
-    result = try_evict_from(mfu_, mfu_ghost_, ArcStatus::MFU_GHOST);
-    if (!result) {
-      result = try_evict_from(mru_, mru_ghost_, ArcStatus::MRU_GHOST);
-    }
-  }
-
-  return result;
-}
-
-
-
-
-
-/*auto ArcReplacer::Evict() -> std::optional<frame_id_t> { sudocode not cover all the cases
 	std::scoped_lock lock(latch_);
 
-	cout << "MRU: ";
-    for(auto it : mru_)cout << it << " ";
-    cout << endl;
-    cout << "MFU: ";
-    for(auto it : mfu_)cout << it << " ";
-    cout << endl;
-    cout << "MRU_GHOST: ";
-    for(auto it : mru_ghost_)cout << it << " ";
-    cout << endl;
-    cout << "MFU_GHOST: ";
-    for(auto it : mfu_ghost_)cout << it << " ";
-    cout << endl;
-    cout << "target size is " << mru_target_size_ << endl;
-	if(mru_.size() > mru_target_size_)
-	{
-		std::shared_ptr<FrameStatus> frame = nullptr;
-		for(auto it = mru_.rbegin(); it != mru_.rend(); it++)
-			if(alive_map_[*it]->evictable_)
-				{
-					frame = alive_map_[*it];
-					break;
-				}
-		if(frame)
-		{
-			mru_.remove(frame->frame_id_);
-			alive_map_.erase(frame->frame_id_);
-			mru_ghost_.push_front(frame->page_id_);
-			ghost_map_[frame->page_id_] = frame;
-			frame->arc_status_ = ArcStatus::MRU_GHOST;
-			curr_size_--;
-			return frame->frame_id_;
-		}else
-		{
-			std::shared_ptr<FrameStatus> frame_mfu = nullptr;
-			for(auto it = mfu_.rbegin(); it != mfu_.rend(); it++)
-                        if(alive_map_[*it]->evictable_)
-                                {
-                                        frame_mfu = alive_map_[*it];
-                                        break;
-                                }
-			if(frame_mfu)
-			{
-				mfu_.remove(frame_mfu->frame_id_);
-        	                alive_map_.erase(frame_mfu->frame_id_);
-	                        mfu_ghost_.push_front(frame_mfu->page_id_);
-                	        ghost_map_[frame_mfu->page_id_] = frame_mfu;
-                        	frame_mfu->arc_status_ = ArcStatus::MFU_GHOST;
-                        	curr_size_--;
-                        	return frame_mfu->frame_id_;
-			}else return std::nullopt;
-		}
-
-	}
-	else
-	{
-		std::shared_ptr<FrameStatus> frame = nullptr;
-                for(auto it = mfu_.rbegin(); it != mfu_.rend(); it++)
-                        if(alive_map_[*it]->evictable_)
-                                {
-                                        frame = alive_map_[*it];
-                                        break;
-                                }
-                if(frame)
-                {
-                        mfu_.remove(frame->frame_id_);
-                        alive_map_.erase(frame->frame_id_);
-                        mfu_ghost_.push_front(frame->page_id_);
-                        ghost_map_[frame->page_id_] = frame;
-                        frame->arc_status_ = ArcStatus::MFU_GHOST;
-                        curr_size_--;
-                        return frame->frame_id_;
-                }else
-                {
-                        std::shared_ptr<FrameStatus> frame_mru = nullptr;
-                        for(auto it = mru_.rbegin(); it != mru_.rend(); it++)
-                        if(alive_map_[*it]->evictable_)
-                                {
-                                        frame_mru = alive_map_[*it];
-                                        break;
-                                }
-                        if(frame_mru)
-                        {
-                                mru_.remove(frame_mru->frame_id_);
-                                alive_map_.erase(frame_mru->frame_id_);
-                                mru_ghost_.push_front(frame_mru->page_id_);
-                                ghost_map_[frame_mru->page_id_] = frame_mru;
-                                frame_mru->arc_status_ = ArcStatus::MRU_GHOST;
-                                curr_size_--;
-				 return frame_mru->frame_id_;
-                        }else return std::nullopt;
-                }
+	if(mru_.size() >= 
 
 
-	}
+
+
+
 
 	return std::nullopt;
-}*/
+}
 
 /**
  * TODO(P1): Add implementation
@@ -237,7 +87,7 @@ auto ArcReplacer::Evict() -> std::optional<frame_id_t> {
  * leaderboard tests.
  */
 //void ArcReplacer::RecordAccess(frame_id_t frame_id, page_id_t page_id, [[maybe_unused]] AccessType access_type)
-//{ sudocode not cover all the cases
+//{
 
 	/*std::scoped_lock lock(latch_);
 	std::shared_ptr<FrameStatus> live = alive_map_[frame_id];
@@ -361,13 +211,13 @@ void ArcReplacer::RecordAccess(frame_id_t frame_id, page_id_t page_id, [[maybe_u
                 mru_target_size_--;
             else
                 mru_target_size_ -= mru_ghost_.size() / /*std::max<size_t>(1, */mfu_ghost_.size()/*)*/;
-            mru_target_size_ = std::max(mru_target_size_, size_t{0});
+            mru_target_size_ = std::max(mru_target_size_, 0);
 
             mfu_ghost_.remove(page_id);
         }
 
         ghost_map_.erase(page_id);
-        alive_map_[frame_id] = std::make_shared<FrameStatus>(page_id, frame_id, false, ArcStatus::MFU);
+        alive_map_[frame_id] = std::make_shared<FrameStatus>(frame_id, page_id, false, ArcStatus::MFU);
         mfu_.push_front(frame_id);
         return;
     }
@@ -384,22 +234,8 @@ void ArcReplacer::RecordAccess(frame_id_t frame_id, page_id_t page_id, [[maybe_u
     }
 
 
-    alive_map_[frame_id] = std::make_shared<FrameStatus>(page_id, frame_id, false, ArcStatus::MRU);
+    alive_map_[frame_id] = std::make_shared<FrameStatus>(frame_id, page_id, false, ArcStatus::MRU);
     mru_.push_front(frame_id);
-    /*for debiging porpose*/
-    /*cout << "MRU: ";
-    for(auto it : mru_)cout << it << " ";
-    cout << endl;
-    cout << "MFU: ";
-    for(auto it : mfu_)cout << it << " ";
-    cout << endl;
-    cout << "MRU_GHOST: ";
-    for(auto it : mru_ghost_)cout << it << " ";
-    cout << endl;
-    cout << "MFU_GHOST: ";
-    for(auto it : mfu_ghost_)cout << it << " ";
-    cout << endl;
-    cout << "target size is " << mru_target_size_ << endl;*/
 }
 
 
@@ -432,12 +268,14 @@ void ArcReplacer::SetEvictable(frame_id_t frame_id, bool set_evictable) {
     BUSTUB_ASSERT(frame != nullptr, "Frame pointer is null in SetEvictable()");
 
     // this is no logical error (MASR is great place)
-    if(set_evictable == frame->evictable_)return;
-    frame->evictable_ = set_evictable;
+    if (frame->evictable_ == set_evictable) {
+        return;
+    }
 
+    frame->evictable_ = set_evictable;
     curr_size_ += set_evictable ? 1 : -1;
 
-   // BUSTUB_ASSERT(curr_size_ >= 0, "Replacer size underflow in SetEvictable()");
+    BUSTUB_ASSERT(curr_size_ >= 0, "Replacer size underflow in SetEvictable()");
 }
 
 /**
@@ -474,17 +312,17 @@ void ArcReplacer::Remove(frame_id_t frame_id) {
     page_id_t id = frame->page_id_;
 
 
-    switch (frame->arc_status_) {
-        case ArcStatus::MRU:
+    switch (frame->ArcStatus) {
+        case MRU:
             mru_.remove(frame_id);
             break;
-        case ArcStatus::MFU:
+        case MFU:
             mfu_.remove(frame_id);
             break;
-        case ArcStatus::MRU_GHOST:
+        case MRU_GHOST:
             mru_ghost_.remove(id);
             break;
-        case ArcStatus::MFU_GHOST:
+        case MFU_GHOST:
             mfu_ghost_.remove(id);
             break;
         default:
