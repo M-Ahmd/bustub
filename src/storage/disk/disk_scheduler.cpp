@@ -18,7 +18,7 @@
 namespace bustub {
 
 DiskScheduler::DiskScheduler(DiskManager *disk_manager) : disk_manager_(disk_manager) {
-  UNIMPLEMENTED("TODO(P1): Add implementation.");
+  //UNIMPLEMENTED("TODO(P1): Add implementation.");
   // Spawn the background thread
   background_thread_.emplace([&] { StartWorkerThread(); });
 }
@@ -38,7 +38,12 @@ DiskScheduler::~DiskScheduler() {
  *
  * @param requests The requests to be scheduled.
  */
-void DiskScheduler::Schedule(std::vector<DiskRequest> &requests) {}
+void DiskScheduler::Schedule(std::vector<DiskRequest> &requests) {
+	for(auto &it : requests)
+	{
+		request_queue_.Put(std::make_optional<DiskRequest>(std::move(it)));
+	}
+}
 
 /**
  * TODO(P1): Add implementation
@@ -48,6 +53,21 @@ void DiskScheduler::Schedule(std::vector<DiskRequest> &requests) {}
  * The background thread needs to process requests while the DiskScheduler exists, i.e., this function should not
  * return until ~DiskScheduler() is called. At that point you need to make sure that the function does return.
  */
-void DiskScheduler::StartWorkerThread() {}
+void DiskScheduler::StartWorkerThread() {
+	while(true)
+	{
+		auto request = request_queue_.Get();
+		if(!request.has_value()) break;
+
+		DiskRequest &acual_request = request.value();
+
+		if(acual_request.is_write_)
+			disk_manager_->WritePage(acual_request.page_id_, acual_request.data_);
+		else //read request
+			disk_manager_->ReadPage(acual_request.page_id_, acual_request.data_);
+
+		acual_request.callback_.set_value(true);
+	}
+}
 
 }  // namespace bustub
