@@ -38,7 +38,9 @@ ReadPageGuard::ReadPageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> fra
       replacer_(std::move(replacer)),
       bpm_latch_(std::move(bpm_latch)),
       disk_scheduler_(std::move(disk_scheduler)) {
-  UNIMPLEMENTED("TODO(P1): Add implementation.");
+		frame_->pin_count_++;
+		replacer_->SetEvictable(frame_->frame_id_, false);
+		replacer_->RecordAccess(frame_->frame_id_, page_id);
 }
 
 /**
@@ -56,7 +58,21 @@ ReadPageGuard::ReadPageGuard(page_id_t page_id, std::shared_ptr<FrameHeader> fra
  *
  * @param that The other page guard.
  */
-ReadPageGuard::ReadPageGuard(ReadPageGuard &&that) noexcept {}
+ReadPageGuard::ReadPageGuard(ReadPageGuard &&that) noexcept {
+    if (this == &that) return;
+
+    this->page_id_ = that.page_id_;
+    this->frame_ = std::move(that.frame_);
+    this->replacer_ = std::move(that.replacer_);
+    this->bpm_latch_ = std::move(that.bpm_latch_);
+    this->disk_scheduler_ = std::move(that.disk_scheduler_);
+
+    that.page_id_ = INVALID_PAGE_ID;
+    that.frame_ = nullptr;
+    that.replacer_ = nullptr;
+    that.bpm_latch_ = nullptr;
+    that.disk_scheduler_ = nullptr;
+}
 
 /**
  * @brief The move assignment operator for `ReadPageGuard`.
@@ -75,7 +91,26 @@ ReadPageGuard::ReadPageGuard(ReadPageGuard &&that) noexcept {}
  * @param that The other page guard.
  * @return ReadPageGuard& The newly valid `ReadPageGuard`.
  */
-auto ReadPageGuard::operator=(ReadPageGuard &&that) noexcept -> ReadPageGuard & { return *this; }
+auto ReadPageGuard::operator=(ReadPageGuard &&that) noexcept -> ReadPageGuard & {
+	if(this != &that)
+	{
+		Drop();
+
+    		this->page_id_ = that.page_id_;
+    		this->frame_ = std::move(that.frame_);
+    		this->replacer_ = std::move(that.replacer_);
+    		this->bpm_latch_ = std::move(that.bpm_latch_);
+    		this->disk_scheduler_ = std::move(that.disk_scheduler_);
+
+    		that.page_id_ = INVALID_PAGE_ID;
+    		that.frame_ = nullptr;
+    		that.replacer_ = nullptr;
+    		that.bpm_latch_ = nullptr;
+    		that.disk_scheduler_ = nullptr;
+	}
+
+	return *this;
+}
 
 /**
  * @brief Gets the page ID of the page this guard is protecting.
@@ -106,7 +141,7 @@ auto ReadPageGuard::IsDirty() const -> bool {
  *
  * TODO(P1): Add implementation.
  */
-void ReadPageGuard::Flush() { UNIMPLEMENTED("TODO(P1): Add implementation."); }
+void ReadPageGuard::Flush() { //UNIMPLEMENTED("TODO(P1): Add implementation."); }
 
 /**
  * @brief Manually drops a valid `ReadPageGuard`'s data. If this guard is invalid, this function does nothing.
@@ -119,7 +154,33 @@ void ReadPageGuard::Flush() { UNIMPLEMENTED("TODO(P1): Add implementation."); }
  *
  * TODO(P1): Add implementation.
  */
-void ReadPageGuard::Drop() { UNIMPLEMENTED("TODO(P1): Add implementation."); }
+void ReadPageGuard::Drop() { //UNIMPLEMENTED("TODO(P1): Add implementation.");
+    if (frame_ == nullptr) {
+        return; // already dropped / invalid guard
+    }
+
+    // protect metadata update
+    std::scoped_lock lock(*bpm_latch_);
+
+    // safety: ensure pin_count_ > 0 before decrementing
+    BUSTUB_ASSERT(frame_->pin_count_ > 0, "Pin count must be positive before Drop()");
+    frame_->pin_count_--;
+    if (frame_->pin_count_ == 0) {
+        if (replacer_) {
+            replacer_->SetEvictable(frame_->frame_id_, true);
+        }
+    }
+
+    // invalidate this guard (release ownership)
+    frame_ = nullptr;
+    replacer_ = nullptr;
+    // release bpm_latch_ shared_ptr after unlocking could be clearer,
+    // but setting to nullptr here is also OK because lock already holds mutex ref.
+    bpm_latch_ = nullptr;
+    disk_scheduler_ = nullptr;
+    page_id_ = INVALID_PAGE_ID;
+
+}
 
 /** @brief The destructor for `ReadPageGuard`. This destructor simply calls `Drop()`. */
 ReadPageGuard::~ReadPageGuard() { Drop(); }
