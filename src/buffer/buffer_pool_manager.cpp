@@ -211,49 +211,7 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_ty
  */
 auto BufferPoolManager::CheckedReadPage(page_id_t page_id, AccessType access_type)
     -> std::optional<ReadPageGuard> {
-
-    std::shared_ptr<FrameHeader> frame;
-
-    //Page is already in memory
-    auto it = page_table_.find(page_id);
-    if (it != page_table_.end()) {
-        frame = frames_[it->second];
-    } else {
-
-        if (free_frames_.empty()) {
-            return std::nullopt;
-        }
-
-        frame_id_t frame_id = free_frames_.front();
-        free_frames_.pop_front();
-        frame = frames_[frame_id];
-
-
-        if (frame->is_dirty_) {
-            DiskRequest write_req;
-            write_req.is_write_ = true;
-            write_req.page_id_ = frame->page_id_;
-            write_req.data_ = frame->data_.data();
-            disk_scheduler_->Schedule(write_req);
-            write_req.promise_.get_future().wait();
-            frame->is_dirty_ = false;
-        }
-
-
-        DiskRequest read_req;
-        read_req.is_write_ = false;
-        read_req.page_id_ = page_id;
-        read_req.data_ = frame->data_.data();
-        disk_scheduler_->Schedule(read_req);
-        read_req.callback_.get_future().wait();
-
-        //Update frame metadata
-        frame->page_id_ = page_id;
-        page_table_[page_id] = frame->frame_id_;
-    }
-
-    //Return the RAII guard → handles pin_count & shared lock automatically
-    return ReadPageGuard(page_id, frame, replacer_, bpm_latch_, disk_scheduler_);
+	UNIMPLEMENTED("TODO(P1): Add implementation.");
 }
 /**
  * @brief A wrapper around `CheckedWritePage` that unwraps the inner value if it exists.
