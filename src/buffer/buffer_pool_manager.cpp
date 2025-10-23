@@ -118,9 +118,63 @@ auto BufferPoolManager::Size() const -> size_t { return num_frames_; }
  * @return The page ID of the newly allocated page.
  */
 auto BufferPoolManager::NewPage() -> page_id_t {
-	return ++next_page_id_;
-}
+  // 1. Acquire the global BPM latch
+  scoped_lock lock(*bpm_latch_);
 
+  std::shared_ptr<frameHeader> frame_to_use = nullptr;
+  frame_id_t selected_frame_id;
+
+  // --- Step 1: Find a frame to use ---
+
+  if (!free_frames_.empty()) {
+    // --- Case (A): A free frame is available (fast path) ---
+    selected_frame_id = free_frames_.back();
+    free_frames_.pop_back();
+    frame_to_use = frames_[selected_frame_id];
+
+  } else {
+    // --- Case (B): No free frame, must evict a victim page (slow path) ---
+    auto evict_result = replacer_->Evict();
+    if (!evict_result) {
+      // Cannot evict any page (all are currently pinned)
+      // [Optimization] Note: we didn't waste a 'page_id' on failure
+      return INVALID_PAGE_ID;
+    }
+
+    selected_frame_id = evict_result.value();
+    frame_to_use = frames_[selected_frame_id];
+
+    // [Performance Warning]
+    // This flush operation is holding the global latch,
+    // causing a major bottleneck as I/O is slow.
+    if (frame_to_use->is_dirty_) {
+      FlushPageUnsafe(frame_to_use->page_id_)
+    }
+
+    // Remove the old page's mapping from the page table
+    page_table_.erase(frame_to_use->page_id_);
+  }
+
+  // --- Step 2: Allocate ID and initialize the frame (unified code) ---
+
+  // [Optimization] Allocate the new page_id *only after* securing a frame
+  page_id_t new_page_id = next_page_id_.fetch_add(1);
+
+  // (This logic was duplicated in the original version; now it's unified)
+  frame_to_use->Reset();
+  frame_to_use->page_id_ = new_page_id;
+  frame_to_use->pin_count_.store(1); // Pin the new page
+
+  // Update the page table
+  page_table_[new_page_id] = selected_frame_id;
+
+  // Notify the replacer
+  replacer_->RecordAccess(selected_frame_id, new_page_id);
+  replacer_->SetEvictable(selected_frame_id, false); // (because pin_count = 1)
+
+  return new_page_id;
+
+}
 /**
  * @brief Removes a page from the database, both on disk and in memory.
  *
@@ -282,8 +336,62 @@ auto BufferPoolManager::ReadPage(page_id_t page_id, AccessType access_type) -> R
  * @param page_id The page ID of the page to be flushed.
  * @return `false` if the page could not be found in the page table; otherwise, `true`.
  */
-auto BufferPoolManager::FlushPageUnsafe(page_id_t page_id) -> bool { UNIMPLEMENTED("TODO(P1): Add implementation."); }
+auto BufferPoolManager::FlushPageUnsafe(page_id_t page_id) -> bool {
+  // 1. Check if the page is in the page table (in memory).
+  // We assume the caller (like NewPage) is holding the bpm_latch_,
+  // so we don't need to lock the page_table_ here.
+  if (page_table_.find(page_id) == page_table_.end()) {
+    return false; // Page not found in memory.
+  }
 
+  // 2. Get the corresponding frame.
+  frame_id_t frame_id = page_table_[page_id];
+  auto frame = frames_[frame_id];
+
+  // 3. If the page is not dirty, there's nothing to flush.
+  // We can return true because the "flush" operation is vacuously successful.
+  if (!frame->is_dirty_) {
+    return true;
+  }
+
+  // 4. The page is dirty and needs to be written to disk.
+  // We must wait for the write to complete, so we use a promise/future
+  // to make the asynchronous disk_scheduler_ call synchronous.
+  std::promise<bool> write_promise;
+  std::future<bool> write_future = write_promise.get_future();
+
+  // 5. Create the disk request.
+  // Note: The UML diagram for diskScheduler shows `Schedule` takes a
+  // std::vector<diskRequest>&. We must create a temporary vector for the call.
+  std::vector<diskRequest> requests;
+  requests.emplace_back(); // Add a default-constructed request to the vector
+
+  diskRequest &request = requests.back(); // Get a reference to the new request
+  request.is_write_ = true;
+  request.page_id_ = page_id;
+  // Use GetDataMut() as diskRequest::data_ is 'char*', not 'const char*'
+  request.data_ = frame->GetDataMut(); 
+  request.callback_ = std::move(write_promise); // Move the promise into the request
+
+  // 6. Schedule the write operation.
+  disk_scheduler_->Schedule(requests);
+
+  // 7. Block this thread and wait for the disk scheduler's worker thread
+  // to complete the write and fulfill the promise.
+  bool write_success = write_future.get();
+
+  // 8. If the write was successful, we can now safely toggle the dirty bit.
+  // We are "unsafe" (no page latch), but we're protected by the
+  // global bpm_latch_ and the fact that this page's pin_count_ is 0
+  // (since it was just evicted), so no other thread can be using it.
+  if (write_success) {
+    frame->is_dirty_ = false;
+  }
+
+  // 9. Return the status of the disk write.
+  // If false, the caller (NewPage) will loop and try again.
+  return write_success;
+}
 /**
  * @brief Flushes a page's data out to disk safely.
  *
@@ -358,7 +466,13 @@ void BufferPoolManager::FlushAllPages() { UNIMPLEMENTED("TODO(P1): Add implement
  * @return std::optional<size_t> The pin count if the page exists; otherwise, `std::nullopt`.
  */
 auto BufferPoolManager::GetPinCount(page_id_t page_id) -> std::optional<size_t> {
-  UNIMPLEMENTED("TODO(P1): Add implementation.");
+  auto it = page_table_.find(page_id);
+  if (it == page_table_.end()) {
+    return std::nullopt; // Page not found
+  }
+  frame_id_t frame_id = it->second;
+  auto frame = frames_[frame_id];
+  return frame->pin_count_.load(); // Atomic load of pin count
 }
 
 }  // namespace bustub
